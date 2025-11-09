@@ -1,6 +1,6 @@
 //! Process management syscalls
 use crate::{
-    task::{exit_current_and_run_next, suspend_current_and_run_next},
+    task::{exit_current_and_run_next, suspend_current_and_run_next, TASKS_TIMES},
     timer::get_time_us,
 };
 
@@ -50,7 +50,19 @@ pub fn sys_trace(_trace_request: usize, _id: usize, _data: usize) -> isize {
         return 0;
       },
       2 => {
-        -1
+        let inner = TASKS_TIMES.exclusive_access();
+        match inner.get(&_id){
+            Some(times) => {
+              let task_times = *times;
+              drop(inner);
+              task_times as isize
+            },
+            None => {
+              drop(inner);
+              -1
+            },
+        }
+        
       },
       _ => -1,
     }

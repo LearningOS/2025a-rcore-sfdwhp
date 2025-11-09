@@ -14,6 +14,7 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
+use alloc::collections::BTreeMap;
 use crate::config::MAX_APP_NUM;
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
@@ -39,12 +40,17 @@ pub struct TaskManager {
     inner: UPSafeCell<TaskManagerInner>,
 }
 
+// src/task/mod.rs
+const MAX_SYSCALL_NUM: usize = 256;  // 定义最大系统调用数量
 /// Inner of Task Manager
 pub struct TaskManagerInner {
     /// task list
     tasks: [TaskControlBlock; MAX_APP_NUM],
     /// id of current `Running` task
     current_task: usize,
+    /// System call counts for each syscall ID
+    /// Indexed by syscall ID, value is the number of calls
+    pub syscall_counts: [u32; MAX_SYSCALL_NUM],
 }
 
 lazy_static! {
@@ -65,10 +71,22 @@ lazy_static! {
                 UPSafeCell::new(TaskManagerInner {
                     tasks,
                     current_task: 0,
+                    syscall_counts:[0; MAX_SYSCALL_NUM],
                 })
             },
         }
     };
+    /// System call counts for each syscall ID
+    /// Indexed by syscall ID, value is the number of calls
+    pub static ref TASKS_TIMES: UPSafeCell<BTreeMap<usize, u32>> = 
+        unsafe { UPSafeCell::new(BTreeMap::new()) };
+}
+
+impl TaskManagerInner {
+  ///System call counts
+    pub fn record_syscall(&mut self, syscall_id: usize) {
+            self.syscall_counts[syscall_id] += 1;
+        }
 }
 
 impl TaskManager {
@@ -135,6 +153,12 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+    fn tasks_times(&self){
+      let mut inner = self.inner.exclusive_access();
+      let current = inner.current_task;
+      inner.record_syscall(current);
+      drop(inner);
+    }
 }
 
 /// Run the first task in task list.
@@ -168,4 +192,8 @@ pub fn suspend_current_and_run_next() {
 pub fn exit_current_and_run_next() {
     mark_current_exited();
     run_next_task();
+}
+/// tasks_times
+pub fn tasks_times(){
+  TASK_MANAGER.tasks_times();
 }
